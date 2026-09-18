@@ -25,5 +25,14 @@
     "run_id": "RUN-1003",
     "status": "DATA_QUALITY_FAILURE",
     "timestamp": "2026-09-18T05:00:00"
+  },
+  {
+  "incident_id": "INC-1002",
+  "source": "airflow",
+  "pipeline": "transaction_processing",
+  "task": "gold_transaction_load",
+  "run_id": "RUN-1002",
+  "status": "DATA_QUALITY_FAILURE",
+  "timestamp": "2026-09-19T00:20:00"
   }
 ]

@@ -1,23 +1,23 @@
+import asyncio
 import json
 import os
+import sys
 
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from diagnostic_tools import (
-    get_job_logs,
-    get_schema_diff,
-    get_job_metrics,
-    get_recent_deployments,
-    get_lineage,
-)
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
 
 
 load_dotenv()
 
 client = OpenAI()
 
-MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6")
+MODEL = os.getenv(
+    "OPENAI_MODEL",
+    "gpt-5.6"
+)
 
 
 def load_incidents():
@@ -25,132 +25,118 @@ def load_incidents():
         return json.load(f)
 
 
-# Tools exposed to the LLM
-TOOLS = [
-    {
-        "type": "function",
-        "name": "get_job_logs",
-        "description": "Get error logs for a pipeline run.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "run_id": {
-                    "type": "string"
-                }
-            },
-            "required": ["run_id"],
-            "additionalProperties": False
-        }
-    },
-    {
-        "type": "function",
-        "name": "get_schema_diff",
-        "description": "Compare the previous and current schema of a pipeline.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "pipeline": {
-                    "type": "string"
-                }
-            },
-            "required": ["pipeline"],
-            "additionalProperties": False
-        }
-    },
-    {
-        "type": "function",
-        "name": "get_job_metrics",
-        "description": "Get runtime and processing metrics for a pipeline run.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "run_id": {
-                    "type": "string"
-                }
-            },
-            "required": ["run_id"],
-            "additionalProperties": False
-        }
-    },
-    {
-        "type": "function",
-        "name": "get_recent_deployments",
-        "description": "Get recent deployments related to a pipeline.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "pipeline": {
-                    "type": "string"
-                }
-            },
-            "required": ["pipeline"],
-            "additionalProperties": False
-        }
-    },
-    {
-        "type": "function",
-        "name": "get_lineage",
-        "description": "Get upstream and downstream dependencies of a pipeline.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "pipeline": {
-                    "type": "string"
-                }
-            },
-            "required": ["pipeline"],
-            "additionalProperties": False
-        }
-    }
-]
+# ---------------------------------------------------------
+# Convert MCP tools into tools understood by the LLM
+# ---------------------------------------------------------
+
+def convert_mcp_tools_to_openai(mcp_tools):
+    tools = []
+
+    for tool in mcp_tools:
+
+        tools.append(
+            {
+                "type": "function",
+                "name": tool.name,
+                "description": tool.description or "",
+                "parameters": tool.input_schema,
+            }
+        )
+
+    return tools
 
 
-def execute_tool(name, arguments):
+# ---------------------------------------------------------
+# Convert MCP tool output into normal Python data
+# ---------------------------------------------------------
 
-    if name == "get_job_logs":
-        return get_job_logs(arguments["run_id"])
+def parse_mcp_result(result):
 
-    if name == "get_schema_diff":
-        return get_schema_diff(arguments["pipeline"])
+    # Newer MCP tools may provide structured output directly.
+    if getattr(result, "structuredContent", None) is not None:
+        return result.structuredContent
 
-    if name == "get_job_metrics":
-        return get_job_metrics(arguments["run_id"])
+    # Fall back to text content.
+    texts = []
 
-    if name == "get_recent_deployments":
-        return get_recent_deployments(arguments["pipeline"])
+    for item in result.content:
 
-    if name == "get_lineage":
-        return get_lineage(arguments["pipeline"])
+        if getattr(item, "text", None):
+            texts.append(item.text)
 
-    raise ValueError(f"Unknown tool: {name}")
+    if not texts:
+        return None
+
+    combined = "\n".join(texts)
+
+    # Some tools return JSON serialized as text.
+    try:
+        return json.loads(combined)
+    except json.JSONDecodeError:
+        return combined
 
 
-def investigate_incident(incident):
+# ---------------------------------------------------------
+# Main Incident Agent
+# ---------------------------------------------------------
+
+async def investigate_incident(
+    incident,
+    mcp_session,
+    llm_tools,
+):
 
     instructions = """
 You are a production data engineering incident investigator.
 
-Your job is to determine the root cause of a pipeline incident.
+Your objective is to determine the root cause of a
+production data incident and recommend a safe recovery plan.
 
-Use the available diagnostic tools to gather evidence.
+You have access to tools exposed through an MCP server.
 
-Do not invent production facts.
-Use tools when evidence is required.
+Use diagnostic tools to retrieve current operational evidence.
+Use the knowledge-search tool when historical incidents or
+approved runbooks can help with diagnosis or recovery.
 
-When you have enough evidence, provide:
+Rules:
 
-1. Root cause
-2. Evidence
-3. Impact
-4. Recommended remediation
+1. Do not invent production facts.
+
+2. Gather current evidence using available tools.
+
+3. Historical incidents are supporting evidence only.
+   They do not prove the current root cause.
+
+4. Prefer current production evidence if it conflicts
+   with historical information.
+
+5. Do not call tools unnecessarily.
+
+6. Use lineage or other impact information when needed
+   to determine downstream effects.
+
+7. Do not recommend destructive actions unless they are
+   justified by evidence.
+
+When you have enough evidence, return:
+
+1. Root Cause
+2. Current Evidence
+3. Relevant Historical Knowledge
+4. Impact
+5. Recommended Remediation
+6. Validation Steps
 """
 
     input_items = [
         {
             "role": "user",
             "content": (
-                "Investigate this production incident:\n"
-                + json.dumps(incident, indent=2)
+                "Investigate this production incident:\n\n"
+                + json.dumps(
+                    incident,
+                    indent=2
+                )
             )
         }
     ]
@@ -160,12 +146,13 @@ When you have enough evidence, provide:
         response = client.responses.create(
             model=MODEL,
             instructions=instructions,
-            tools=TOOLS,
-            input=input_items
+            tools=llm_tools,
+            input=input_items,
         )
 
-        # Preserve model output for next iteration
-        input_items.extend(response.output)
+        input_items.extend(
+            response.output
+        )
 
         tool_called = False
 
@@ -176,46 +163,153 @@ When you have enough evidence, provide:
 
             tool_called = True
 
-            arguments = json.loads(item.arguments)
+            arguments = json.loads(
+                item.arguments
+            )
 
             print(
-                f"\nLLM selected tool: "
-                f"{item.name}({arguments})"
+                "\n--------------------------------"
             )
 
-            result = execute_tool(
+            print(
+                f"Agent selected MCP tool: "
+                f"{item.name}"
+            )
+
+            print(
+                "Arguments:"
+            )
+
+            print(
+                json.dumps(
+                    arguments,
+                    indent=2
+                )
+            )
+
+            # ---------------------------------------------
+            # IMPORTANT:
+            # Tool execution now happens through MCP.
+            # ---------------------------------------------
+
+            mcp_result = await mcp_session.call_tool(
                 item.name,
-                arguments
+                arguments=arguments,
             )
 
-            print("Tool result:")
-            print(result)
+            result = parse_mcp_result(
+                mcp_result
+            )
+
+            print(
+                "\nMCP tool result:"
+            )
+
+            print(
+                json.dumps(
+                    result,
+                    indent=2,
+                    default=str
+                )
+            )
 
             input_items.append(
                 {
                     "type": "function_call_output",
                     "call_id": item.call_id,
-                    "output": json.dumps(result)
+                    "output": json.dumps(
+                        result,
+                        default=str
+                    ),
                 }
             )
 
-        # No more tools requested.
-        # The model has produced its final RCA.
+        # Model did not request another tool.
+        # Investigation is complete.
         if not tool_called:
             return response.output_text
 
 
-if __name__ == "__main__":
+# ---------------------------------------------------------
+# MCP Client
+# ---------------------------------------------------------
+
+async def main():
 
     incidents = load_incidents()
 
-    # Start only with INC-1001
+    # Start with the schema incident.
     incident = incidents[0]
 
-    print("\nStarting investigation...")
-    print(json.dumps(incident, indent=2))
+    print(
+        "\n========== INCIDENT =========="
+    )
 
-    result = investigate_incident(incident)
+    print(
+        json.dumps(
+            incident,
+            indent=2
+        )
+    )
 
-    print("\n========== INCIDENT RCA ==========")
-    print(result)
+    # -----------------------------------------------------
+    # Tell MCP client how to launch our local server
+    # -----------------------------------------------------
+
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=[
+            "mcp_server.py",
+        ],
+        env=dict(os.environ),
+    )
+
+    async with stdio_client(
+        server_params
+    ) as (read, write):
+
+        async with ClientSession(
+            read,
+            write
+        ) as session:
+
+            # MCP connection handshake
+            await session.initialize()
+
+            # ---------------------------------------------
+            # MCP TOOL DISCOVERY
+            # ---------------------------------------------
+
+            tools_response = await session.list_tools()
+
+            print(
+                "\n========== MCP TOOLS =========="
+            )
+
+            for tool in tools_response.tools:
+                print(
+                    f"- {tool.name}"
+                )
+
+            # Translate discovered MCP tools into tool
+            # definitions that the LLM can understand.
+            llm_tools = convert_mcp_tools_to_openai(
+                tools_response.tools
+            )
+
+            # Run investigation
+            result = await investigate_incident(
+                incident=incident,
+                mcp_session=session,
+                llm_tools=llm_tools,
+            )
+
+            print(
+                "\n========== FINAL RCA =========="
+            )
+
+            print(result)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

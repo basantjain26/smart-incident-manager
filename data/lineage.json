@@ -8,5 +8,15 @@
       "customer_360",
       "revenue_dashboard"
     ]
+  },
+  "transaction_processing": {
+  "upstream": [
+    "silver_transactions"
+  ],
+  "downstream": [
+    "daily_revenue",
+    "customer_transaction_summary",
+    "fraud_features"
+  ]
   }
 }

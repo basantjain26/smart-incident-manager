@@ -3,5 +3,10 @@
     "pipeline": "customer_transactions",
     "task": "silver_transform",
     "error": "AnalysisException: Column 'amount' cannot be resolved"
-  }
+  },
+  "RUN-1002": {
+  "pipeline": "transaction_processing",
+  "task": "gold_transaction_load",
+  "error": "Spark job failed after partially writing the transaction batch. Airflow automatically retried the job."
+  } 
 }

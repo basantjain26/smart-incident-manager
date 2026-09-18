@@ -3,5 +3,14 @@
     "runtime_minutes": 4,
     "records_read": 10500000,
     "records_written": 0
+  },
+  "RUN-1002": {
+  "runtime_minutes": 48,
+  "records_read": 10000000,
+  "records_written_before_failure": 8000000,
+  "retry_count": 1,
+  "current_target_records": 18000000,
+  "expected_target_records": 10000000,
+  "duplicate_records": 8000000
   }
 }
