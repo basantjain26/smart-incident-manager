@@ -1,0 +1,26 @@
+[
+  {
+    "id": "RB-001",
+    "type": "runbook",
+    "title": "Schema Change Recovery",
+    "metadata": {
+      "incident_type": "schema_change",
+      "platform": "databricks",
+      "environment": "production",
+      "version": "1.0"
+    },
+    "content": "## Symptoms\nA schema-change incident may cause unresolved column errors, missing column errors, type mismatch failures, or unexpected null values after an upstream producer changes its contract.\n\n## Diagnosis\nCompare the previous and current schemas. Identify added, removed, renamed, or type-changed columns. Review recent upstream deployments and verify whether the producer communicated a contract change.\n\n## Impact Analysis\nCheck data lineage to identify downstream Silver, Gold, reporting, and machine-learning workloads depending on the changed fields.\n\n## Recovery\nUpdate the transformation mapping only after confirming the intended source change. Validate the modified transformation against affected data, rerun the failed partition or batch, and avoid blindly rerunning downstream jobs before validation.\n\n## Validation\nVerify row counts, schema compatibility, null rates, duplicate counts, and downstream outputs before marking the incident resolved.\n\n## Prevention\nIntroduce schema contracts, compatibility validation, producer-consumer communication, and pre-production schema checks."
+  },
+  {
+    "id": "RB-002",
+    "type": "runbook",
+    "title": "Duplicate Data Recovery",
+    "metadata": {
+      "incident_type": "duplicate_data",
+      "platform": "databricks",
+      "environment": "production",
+      "version": "1.0"
+    },
+    "content": "## Symptoms\nDuplicate transaction counts increase after a pipeline failure or retry.\n\n## Diagnosis\nDetermine whether the previous execution partially committed data before failing. Check batch identifiers, transaction keys, retry history, and affected partitions.\n\n## Recovery\nQuarantine the affected partition. Deduplicate using the stable business key. Replace or merge the corrected data and rerun the failed batch using idempotent write logic.\n\n## Validation\nCompare source and target counts, validate duplicate counts, and confirm downstream aggregates before releasing the pipeline.\n\n## Prevention\nUse idempotent MERGE logic, batch identifiers, transactional writes, and safe retry mechanisms."
+  }
+]

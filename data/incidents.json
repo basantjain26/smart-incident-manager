@@ -1,0 +1,29 @@
+[
+  {
+    "incident_id": "INC-1001",
+    "source": "airflow",
+    "pipeline": "customer_transactions",
+    "task": "silver_transform",
+    "run_id": "RUN-1001",
+    "status": "FAILED",
+    "timestamp": "2026-09-18T02:14:32"
+  },
+  {
+    "incident_id": "INC-1002",
+    "source": "cloudwatch",
+    "pipeline": "customer_gold",
+    "task": "gold_aggregation",
+    "run_id": "RUN-1002",
+    "status": "PERFORMANCE_ANOMALY",
+    "timestamp": "2026-09-18T03:20:00"
+  },
+  {
+    "incident_id": "INC-1003",
+    "source": "data_quality",
+    "pipeline": "daily_revenue",
+    "task": "revenue_validation",
+    "run_id": "RUN-1003",
+    "status": "DATA_QUALITY_FAILURE",
+    "timestamp": "2026-09-18T05:00:00"
+  }
+]

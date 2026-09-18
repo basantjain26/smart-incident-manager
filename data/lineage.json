@@ -1,0 +1,12 @@
+{
+  "customer_transactions": {
+    "upstream": [
+      "raw_transactions"
+    ],
+    "downstream": [
+      "gold_customer_spend",
+      "customer_360",
+      "revenue_dashboard"
+    ]
+  }
+}

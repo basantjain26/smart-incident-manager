@@ -1,0 +1,26 @@
+[
+  {
+    "id": "INC-0721",
+    "type": "historical_incident",
+    "title": "Silver pipeline failed after schema rename",
+    "metadata": {
+      "incident_type": "schema_change",
+      "platform": "databricks",
+      "environment": "production",
+      "severity": "high"
+    },
+    "content": "## Incident\nThe customer Silver pipeline failed with a Spark unresolved-column exception.\n\n## Investigation\nPipeline logs showed customer_status could not be resolved. Schema comparison showed that the upstream producer renamed customer_status to status during a deployment.\n\n## Root Cause\nAn uncoordinated breaking upstream schema change caused the Silver transformation to reference a column that no longer existed.\n\n## Resolution\nThe transformation mapping was updated, the affected partition was rerun, and downstream tables were validated before pipelines resumed.\n\n## Lessons Learned\nA schema compatibility check was added to detect breaking upstream changes before production processing."
+  },
+  {
+    "id": "INC-0814",
+    "type": "historical_incident",
+    "title": "Duplicate transactions after pipeline retry",
+    "metadata": {
+      "incident_type": "duplicate_data",
+      "platform": "databricks",
+      "environment": "production",
+      "severity": "high"
+    },
+    "content": "## Incident\nDuplicate transactions appeared in the Gold table after an Airflow retry.\n\n## Investigation\nThe original Spark execution had already written part of the batch before failing. Airflow retried the entire batch.\n\n## Root Cause\nThe target write process was not idempotent, so replaying the batch inserted records that had already been committed.\n\n## Resolution\nThe affected partition was quarantined, records were deduplicated using transaction_id, and the corrected batch was written using MERGE logic.\n\n## Lessons Learned\nStable batch identifiers and idempotent MERGE operations were added to the pipeline."
+  }
+]

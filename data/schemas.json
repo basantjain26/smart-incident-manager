@@ -1,0 +1,16 @@
+{
+  "customer_transactions": {
+    "previous": [
+      "transaction_id",
+      "customer_id",
+      "amount",
+      "transaction_timestamp"
+    ],
+    "current": [
+      "transaction_id",
+      "customer_id",
+      "transaction_amount",
+      "transaction_timestamp"
+    ]
+  }
+}

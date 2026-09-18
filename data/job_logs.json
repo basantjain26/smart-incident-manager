@@ -1,0 +1,7 @@
+{
+  "RUN-1001": {
+    "pipeline": "customer_transactions",
+    "task": "silver_transform",
+    "error": "AnalysisException: Column 'amount' cannot be resolved"
+  }
+}
