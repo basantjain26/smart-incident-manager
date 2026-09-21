@@ -19,5 +19,14 @@
   "records_written": 6100000,
   "duplicate_rate": 0.08,
   "freshness_delay_minutes": 47
+  },
+  "RUN-1002-RECOVERY": {
+  "pipeline": "transaction_processing",
+  "runtime_minutes": 31,
+  "records_written": 10000000,
+  "duplicate_records": 0,
+  "duplicate_rate": 0.0,
+  "freshness_delay_minutes": 6,
+  "status": "SUCCESS"
   }
 } 

@@ -25,8 +25,19 @@ client = OpenAI()
 
 MODEL = os.getenv(
     "OPENAI_MODEL",
-    "gpt-5.6"
+    "gpt-5.6",
 )
+
+
+# =========================================================
+# Constants
+# =========================================================
+
+REMEDIATION_TOOLS = {
+    "rerun_pipeline",
+    "quarantine_partition",
+    "rollback_deployment",
+}
 
 
 # =========================================================
@@ -39,7 +50,7 @@ def load_incidents():
 
 
 # =========================================================
-# Convert MCP tools to LLM tool definitions
+# Convert MCP tools into OpenAI tool definitions
 # =========================================================
 
 def convert_mcp_tools_to_openai(mcp_tools):
@@ -59,7 +70,7 @@ def convert_mcp_tools_to_openai(mcp_tools):
 
 
 # =========================================================
-# Convert MCP result into normal Python data
+# Convert MCP result into regular Python data
 # =========================================================
 
 def parse_mcp_result(result):
@@ -67,29 +78,22 @@ def parse_mcp_result(result):
     if getattr(
         result,
         "structuredContent",
-        None
+        None,
     ) is not None:
         return result.structuredContent
 
     if getattr(
         result,
         "structured_content",
-        None
+        None,
     ) is not None:
         return result.structured_content
 
     texts = []
 
     for item in result.content:
-
-        if getattr(
-            item,
-            "text",
-            None
-        ):
-            texts.append(
-                item.text
-            )
+        if getattr(item, "text", None):
+            texts.append(item.text)
 
     if not texts:
         return None
@@ -97,16 +101,14 @@ def parse_mcp_result(result):
     combined = "\n".join(texts)
 
     try:
-        return json.loads(
-            combined
-        )
+        return json.loads(combined)
 
     except json.JSONDecodeError:
         return combined
 
 
 # =========================================================
-# Remediation state
+# LangGraph remediation state
 # =========================================================
 
 class RemediationState(TypedDict):
@@ -123,7 +125,7 @@ class RemediationState(TypedDict):
 # =========================================================
 
 def human_approval_node(
-    state: RemediationState
+    state: RemediationState,
 ):
 
     decision = interrupt(
@@ -152,12 +154,12 @@ def human_approval_node(
         str(decision)
         .strip()
         .lower()
-        in [
+        in {
             "yes",
             "y",
             "approve",
             "approved",
-        ]
+        }
     )
 
     return {
@@ -166,87 +168,67 @@ def human_approval_node(
 
 
 # =========================================================
-# Approval routing
+# Route approval
 # =========================================================
 
 def approval_router(
-    state: RemediationState
+    state: RemediationState,
 ):
 
     if state["approved"]:
-        return "execute"
+        return "approved"
 
     return "rejected"
 
 
 # =========================================================
-# Approved execution node
+# Approved node
+#
+# IMPORTANT:
+# Approval does NOT execute remediation.
+# It only authorizes later MCP execution.
 # =========================================================
 
-def execute_remediation_node(
-    state: RemediationState
-):
-
-    print(
-        "\nExecuting approved remediation..."
-    )
-
-    action = state[
-        "proposed_action"
-    ]
-
-    arguments = state[
-        "action_arguments"
-    ]
-
-    # -----------------------------------------------------
-    # IMPORTANT
-    #
-    # Execution is still simulated here.
-    #
-    # In the next step we will call the real MCP action
-    # tool after approval.
-    # -----------------------------------------------------
-
-    result = {
-        "status":
-            "EXECUTED",
-
-        "action":
-            action,
-
-        "arguments":
-            arguments,
-
-        "message":
-            (
-                f"Approved remediation "
-                f"{action} executed successfully."
-            ),
-    }
-
-    return {
-        "execution_result": result
-    }
-
-
-# =========================================================
-# Rejected remediation node
-# =========================================================
-
-def rejected_node(
-    state: RemediationState
+def approved_node(
+    state: RemediationState,
 ):
 
     return {
         "execution_result": {
-            "status":
-                "REJECTED",
+            "status": "APPROVED",
 
             "action":
-                state[
-                    "proposed_action"
-                ],
+                state["proposed_action"],
+
+            "arguments":
+                state["action_arguments"],
+
+            "message":
+                (
+                    "Human approved remediation. "
+                    "Ready for MCP execution."
+                ),
+        }
+    }
+
+
+# =========================================================
+# Rejected node
+# =========================================================
+
+def rejected_node(
+    state: RemediationState,
+):
+
+    return {
+        "execution_result": {
+            "status": "REJECTED",
+
+            "action":
+                state["proposed_action"],
+
+            "arguments":
+                state["action_arguments"],
 
             "message":
                 (
@@ -258,7 +240,7 @@ def rejected_node(
 
 
 # =========================================================
-# Build LangGraph
+# Build LangGraph approval workflow
 # =========================================================
 
 def build_remediation_graph():
@@ -273,8 +255,8 @@ def build_remediation_graph():
     )
 
     builder.add_node(
-        "execute",
-        execute_remediation_node,
+        "approved",
+        approved_node,
     )
 
     builder.add_node(
@@ -291,16 +273,13 @@ def build_remediation_graph():
         "human_approval",
         approval_router,
         {
-            "execute":
-                "execute",
-
-            "rejected":
-                "rejected",
+            "approved": "approved",
+            "rejected": "rejected",
         },
     )
 
     builder.add_edge(
-        "execute",
+        "approved",
         END,
     )
 
@@ -317,7 +296,7 @@ def build_remediation_graph():
 
 
 # =========================================================
-# Run human approval workflow
+# Run human approval
 # =========================================================
 
 def run_human_approval(
@@ -331,8 +310,7 @@ def run_human_approval(
 
     config = {
         "configurable": {
-            "thread_id":
-                incident_id
+            "thread_id": incident_id
         }
     }
 
@@ -357,7 +335,7 @@ def run_human_approval(
     }
 
     # -----------------------------------------------------
-    # Run until interrupt()
+    # Run graph until interrupt()
     # -----------------------------------------------------
 
     result = graph.invoke(
@@ -367,7 +345,7 @@ def run_human_approval(
 
     interrupts = result.get(
         "__interrupt__",
-        []
+        [],
     )
 
     if not interrupts:
@@ -382,7 +360,7 @@ def run_human_approval(
         approval_data = getattr(
             pending,
             "value",
-            pending
+            pending,
         )
 
         print(
@@ -399,7 +377,7 @@ def run_human_approval(
     )
 
     # -----------------------------------------------------
-    # Resume SAME LangGraph thread
+    # Resume same LangGraph thread
     # -----------------------------------------------------
 
     result = graph.invoke(
@@ -410,6 +388,127 @@ def run_human_approval(
     )
 
     return result
+
+
+# =========================================================
+# Execute approved remediation through MCP
+# =========================================================
+
+async def execute_approved_remediation(
+    mcp_session,
+    proposed_action,
+    action_arguments,
+):
+
+    execution_arguments = dict(
+        action_arguments
+    )
+
+    # -----------------------------------------------------
+    # Authorization boundary:
+    #
+    # During investigation:
+    #     dry_run=True
+    #
+    # Only after human approval:
+    #     dry_run=False
+    # -----------------------------------------------------
+
+    execution_arguments[
+        "dry_run"
+    ] = False
+
+    print(
+        "\n========== EXECUTING APPROVED ACTION =========="
+    )
+
+    print(
+        f"Action: {proposed_action}"
+    )
+
+    print(
+        "\nArguments:"
+    )
+
+    print(
+        json.dumps(
+            execution_arguments,
+            indent=2,
+        )
+    )
+
+    mcp_result = await (
+        mcp_session.call_tool(
+            proposed_action,
+            arguments=execution_arguments,
+        )
+    )
+
+    result = parse_mcp_result(
+        mcp_result
+    )
+
+    print(
+        "\nMCP execution result:"
+    )
+
+    print(
+        json.dumps(
+            result,
+            indent=2,
+            default=str,
+        )
+    )
+
+    return result
+
+
+# =========================================================
+# Post-remediation validation
+# =========================================================
+
+async def validate_after_remediation(
+    mcp_session,
+    recovery_run_id,
+    expected_records,
+    duplicate_tolerance=0,
+):
+
+    print(
+        "\n========== POST-REMEDIATION VALIDATION =========="
+    )
+
+    mcp_result = await (
+        mcp_session.call_tool(
+            "validate_remediation",
+            arguments={
+                "recovery_run_id":
+                    recovery_run_id,
+
+                "expected_records":
+                    expected_records,
+
+                "duplicate_tolerance":
+                    duplicate_tolerance,
+            },
+        )
+    )
+
+    validation_result = (
+        parse_mcp_result(
+            mcp_result
+        )
+    )
+
+    print(
+        json.dumps(
+            validation_result,
+            indent=2,
+            default=str,
+        )
+    )
+
+    return validation_result
 
 
 # =========================================================
@@ -425,50 +524,52 @@ async def investigate_incident(
     instructions = """
 You are a production data engineering incident investigator.
 
-Your objective is to:
+Your objectives are to:
 
-1. investigate the incident,
-2. identify the root cause,
-3. search historical incidents and runbooks when useful,
-4. determine downstream impact,
-5. propose the safest remediation,
-6. call an appropriate remediation tool in DRY-RUN mode
-   when sufficient evidence supports that remediation.
+1. Investigate the production incident.
+2. Identify the most likely root cause.
+3. Gather current operational evidence.
+4. Search historical incidents and approved runbooks when useful.
+5. Determine downstream impact.
+6. Recommend the safest remediation.
+7. Call an appropriate remediation tool in DRY-RUN mode
+   if sufficient evidence supports the action.
 
-You have access to diagnostic, anomaly-detection,
-knowledge-search, and remediation tools exposed through MCP.
+You have access to diagnostic tools, anomaly-detection tools,
+knowledge-search tools, and remediation tools through MCP.
 
-IMPORTANT RULES:
+IMPORTANT INVESTIGATION RULES:
 
 1. Do not invent production facts.
 
-2. Use diagnostic tools to gather current operational evidence.
+2. Use diagnostic tools to collect current operational evidence.
 
-3. Historical incidents are supporting evidence only.
+3. Historical incidents and runbooks are supporting evidence.
    They do not prove the current root cause.
 
-4. Prefer current production evidence when it conflicts
-   with historical knowledge.
+4. Prefer current production evidence when current evidence
+   conflicts with historical knowledge.
 
 5. Do not call tools unnecessarily.
 
-6. Use search_knowledge when historical incidents or
-   approved runbooks can help.
+6. Use search_knowledge when previous incidents or approved
+   runbooks can help the investigation.
 
-7. Remediation tools are DRY-RUN ONLY.
+7. Remediation tools MUST ONLY be used in DRY-RUN mode
+   during investigation.
 
-8. After identifying a sufficiently supported root cause,
-   if one of the available remediation tools is appropriate,
-   you MUST call that remediation tool in dry-run mode.
+8. Never execute remediation directly.
 
-9. Do not treat the dry-run result as actual execution.
+9. If an appropriate remediation tool exists and the root
+   cause is sufficiently supported, call the remediation
+   tool in dry-run mode.
 
-10. Prefer the least risky remediation action.
+10. Prefer the least risky remediation capable of restoring
+    the system safely.
 
-11. Do not call a remediation tool if none of the available
-    tools safely matches the required remediation.
+11. Do not consider a dry-run remediation to be executed.
 
-When the investigation is complete, provide:
+When finished, provide:
 
 1. Root Cause
 2. Current Evidence
@@ -480,23 +581,18 @@ When the investigation is complete, provide:
 
     input_items = [
         {
-            "role":
-                "user",
-
-            "content":
-                (
-                    "Investigate this production incident:\n\n"
-                    + json.dumps(
-                        incident,
-                        indent=2
-                    )
+            "role": "user",
+            "content": (
+                "Investigate this production incident:\n\n"
+                + json.dumps(
+                    incident,
+                    indent=2,
                 )
+            ),
         }
     ]
 
     proposed_remediation = None
-
-    root_cause_summary = None
 
     while True:
 
@@ -534,18 +630,44 @@ When the investigation is complete, provide:
             )
 
             print(
-                "\nArguments:"
+                "\nArguments before guardrails:"
             )
 
             print(
                 json.dumps(
                     arguments,
-                    indent=2
+                    indent=2,
+                )
+            )
+
+            # =================================================
+            # Hard remediation guardrail
+            # =================================================
+
+            if item.name in REMEDIATION_TOOLS:
+
+                arguments[
+                    "dry_run"
+                ] = True
+
+                print(
+                    "\nGuardrail applied: "
+                    "dry_run forced to True"
+                )
+
+            print(
+                "\nFinal tool arguments:"
+            )
+
+            print(
+                json.dumps(
+                    arguments,
+                    indent=2,
                 )
             )
 
             # -------------------------------------------------
-            # Execute tool through MCP
+            # Execute selected tool through MCP
             # -------------------------------------------------
 
             mcp_result = await (
@@ -567,7 +689,7 @@ When the investigation is complete, provide:
                 json.dumps(
                     result,
                     indent=2,
-                    default=str
+                    default=str,
                 )
             )
 
@@ -575,11 +697,7 @@ When the investigation is complete, provide:
             # Capture remediation proposal
             # -------------------------------------------------
 
-            if item.name in [
-                "rerun_pipeline",
-                "quarantine_partition",
-                "rollback_deployment",
-            ]:
+            if item.name in REMEDIATION_TOOLS:
 
                 proposed_remediation = {
                     "action":
@@ -592,6 +710,10 @@ When the investigation is complete, provide:
                         result,
                 }
 
+            # -------------------------------------------------
+            # Give tool result back to LLM
+            # -------------------------------------------------
+
             input_items.append(
                 {
                     "type":
@@ -603,27 +725,23 @@ When the investigation is complete, provide:
                     "output":
                         json.dumps(
                             result,
-                            default=str
+                            default=str,
                         ),
                 }
             )
 
         # -----------------------------------------------------
-        # No more tools requested
+        # Investigation complete
         # -----------------------------------------------------
 
         if not tool_called:
-
-            root_cause_summary = (
-                response.output_text
-            )
 
             return {
                 "final_rca":
                     response.output_text,
 
                 "root_cause_summary":
-                    root_cause_summary,
+                    response.output_text,
 
                 "proposed_remediation":
                     proposed_remediation,
@@ -639,11 +757,13 @@ async def main():
     incidents = load_incidents()
 
     # -----------------------------------------------------
-    # Choose incident
+    # Incident examples
     #
-    # incidents[0] -> schema failure
-    # incidents[1] -> duplicate retry issue
-    # incidents[2] -> anomaly scenario
+    # incidents[0] -> schema-change incident
+    # incidents[1] -> duplicate/retry incident
+    # incidents[2] -> anomaly incident
+    #
+    # We use duplicate/retry for remediation demo.
     # -----------------------------------------------------
 
     incident = incidents[1]
@@ -655,7 +775,7 @@ async def main():
     print(
         json.dumps(
             incident,
-            indent=2
+            indent=2,
         )
     )
 
@@ -684,18 +804,18 @@ async def main():
 
         async with ClientSession(
             read,
-            write
+            write,
         ) as session:
 
-            # -------------------------------------------------
+            # =============================================
             # MCP handshake
-            # -------------------------------------------------
+            # =============================================
 
             await session.initialize()
 
-            # -------------------------------------------------
+            # =============================================
             # MCP dynamic tool discovery
-            # -------------------------------------------------
+            # =============================================
 
             tools_response = (
                 await session.list_tools()
@@ -713,9 +833,9 @@ async def main():
                     f"- {tool.name}"
                 )
 
-            # -------------------------------------------------
+            # =============================================
             # Convert MCP tools for LLM
-            # -------------------------------------------------
+            # =============================================
 
             llm_tools = (
                 convert_mcp_tools_to_openai(
@@ -723,9 +843,9 @@ async def main():
                 )
             )
 
-            # -------------------------------------------------
-            # Run incident investigation
-            # -------------------------------------------------
+            # =============================================
+            # Agent investigation
+            # =============================================
 
             investigation = (
                 await investigate_incident(
@@ -745,9 +865,9 @@ async def main():
                 ]
             )
 
-            # -------------------------------------------------
-            # Check whether agent proposed remediation
-            # -------------------------------------------------
+            # =============================================
+            # Check remediation proposal
+            # =============================================
 
             proposed = investigation[
                 "proposed_remediation"
@@ -770,13 +890,13 @@ async def main():
                 json.dumps(
                     proposed,
                     indent=2,
-                    default=str
+                    default=str,
                 )
             )
 
-            # -------------------------------------------------
-            # Human-in-the-loop approval
-            # -------------------------------------------------
+            # =============================================
+            # Human approval
+            # =============================================
 
             approval_result = (
                 run_human_approval(
@@ -802,19 +922,186 @@ async def main():
                 )
             )
 
+            approval_execution_result = (
+                approval_result.get(
+                    "execution_result",
+                    {}
+                )
+            )
+
+            approval_status = (
+                approval_execution_result.get(
+                    "status"
+                )
+            )
+
             print(
-                "\n========== REMEDIATION RESULT =========="
+                "\n========== APPROVAL RESULT =========="
             )
 
             print(
                 json.dumps(
-                    approval_result.get(
-                        "execution_result"
-                    ),
+                    approval_execution_result,
                     indent=2,
                     default=str,
                 )
             )
+
+            # =============================================
+            # Human rejected remediation
+            # =============================================
+
+            if approval_status != "APPROVED":
+
+                print(
+                    "\nRemediation was not approved. "
+                    "No production action will be executed."
+                )
+
+                return
+
+            print(
+                "\nHuman approved remediation."
+            )
+
+            # =============================================
+            # Execute approved remediation through MCP
+            # =============================================
+
+            execution_result = (
+                await execute_approved_remediation(
+                    mcp_session=session,
+
+                    proposed_action=
+                        proposed[
+                            "action"
+                        ],
+
+                    action_arguments=
+                        proposed[
+                            "arguments"
+                        ],
+                )
+            )
+
+            print(
+                "\n========== FINAL EXECUTION RESULT =========="
+            )
+
+            print(
+                json.dumps(
+                    execution_result,
+                    indent=2,
+                    default=str,
+                )
+            )
+
+            # =============================================
+            # Stop if execution itself failed
+            # =============================================
+
+            if (
+                not isinstance(
+                    execution_result,
+                    dict
+                )
+                or execution_result.get(
+                    "status"
+                ) != "EXECUTED"
+            ):
+
+                print(
+                    "\nRemediation execution did not "
+                    "complete successfully."
+                )
+
+                print(
+                    "Incident remains OPEN."
+                )
+
+                return
+
+            # =============================================
+            # Post-remediation validation
+            #
+            # In a real environment the remediation tool
+            # would return the new run_id.
+            #
+            # For our simulated scenario we use the
+            # predefined recovery run.
+            # =============================================
+
+            recovery_run_id = (
+                "RUN-1002-RECOVERY"
+            )
+
+            validation_result = (
+                await validate_after_remediation(
+                    mcp_session=session,
+
+                    recovery_run_id=
+                        recovery_run_id,
+
+                    expected_records=
+                        10000000,
+
+                    duplicate_tolerance=
+                        0,
+                )
+            )
+
+            # =============================================
+            # Determine final incident status
+            # =============================================
+
+            if (
+                isinstance(
+                    validation_result,
+                    dict
+                )
+                and validation_result.get(
+                    "validation_passed"
+                )
+            ):
+
+                print(
+                    "\n========================================"
+                )
+
+                print(
+                    "INCIDENT RESOLVED"
+                )
+
+                print(
+                    "Remediation executed and all "
+                    "validation checks passed."
+                )
+
+                print(
+                    "========================================"
+                )
+
+            else:
+
+                print(
+                    "\n========================================"
+                )
+
+                print(
+                    "VALIDATION FAILED"
+                )
+
+                print(
+                    "Incident remains OPEN."
+                )
+
+                print(
+                    "Additional investigation is required."
+                )
+
+                print(
+                    "========================================"
+                )
 
 
 # =========================================================
@@ -822,6 +1109,7 @@ async def main():
 # =========================================================
 
 if __name__ == "__main__":
+
     asyncio.run(
         main()
     )

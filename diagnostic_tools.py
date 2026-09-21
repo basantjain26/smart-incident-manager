@@ -143,33 +143,37 @@ def detect_pipeline_anomaly(pipeline, run_id):
         ),
         "current_metrics": current,
     }
-
 def rerun_pipeline(
     pipeline,
     run_id,
     dry_run=True,
 ):
-    action = {
+    if dry_run:
+        return {
+            "action": "rerun_pipeline",
+            "status": "PROPOSED",
+            "dry_run": True,
+            "pipeline": pipeline,
+            "run_id": run_id,
+            "message": (
+                f"Would rerun pipeline {pipeline} "
+                f"for run {run_id}."
+            ),
+        }
+
+    # Production implementation:
+    # call Airflow / Databricks / Glue API here.
+
+    return {
         "action": "rerun_pipeline",
+        "status": "EXECUTED",
+        "dry_run": False,
         "pipeline": pipeline,
         "run_id": run_id,
-        "dry_run": dry_run,
+        "message": (
+            f"Pipeline {pipeline} rerun executed."
+        ),
     }
-
-    if dry_run:
-        action["status"] = "PROPOSED"
-        action["message"] = (
-            f"Would rerun pipeline {pipeline} "
-            f"for failed run {run_id}."
-        )
-
-        return action
-
-    # Real production implementation would call
-    # Airflow / Databricks / Glue here.
-    action["status"] = "EXECUTED"
-
-    return action
 
 
 def quarantine_partition(
@@ -177,25 +181,33 @@ def quarantine_partition(
     partition="affected_batch",
     dry_run=True,
 ):
-    action = {
+    if dry_run:
+        return {
+            "action": "quarantine_partition",
+            "status": "PROPOSED",
+            "dry_run": True,
+            "pipeline": pipeline,
+            "partition": partition,
+            "message": (
+                f"Would quarantine {partition} "
+                f"for pipeline {pipeline}."
+            ),
+        }
+
+    # Production implementation:
+    # move data to quarantine location / mark partition invalid.
+
+    return {
         "action": "quarantine_partition",
+        "status": "EXECUTED",
+        "dry_run": False,
         "pipeline": pipeline,
         "partition": partition,
-        "dry_run": dry_run,
+        "message": (
+            f"Partition {partition} quarantined "
+            f"for pipeline {pipeline}."
+        ),
     }
-
-    if dry_run:
-        action["status"] = "PROPOSED"
-        action["message"] = (
-            f"Would quarantine partition "
-            f"{partition} for pipeline {pipeline}."
-        )
-
-        return action
-
-    action["status"] = "EXECUTED"
-
-    return action
 
 
 def rollback_deployment(
@@ -203,26 +215,118 @@ def rollback_deployment(
     version,
     dry_run=True,
 ):
-    action = {
+    if dry_run:
+        return {
+            "action": "rollback_deployment",
+            "status": "PROPOSED",
+            "dry_run": True,
+            "pipeline": pipeline,
+            "version": version,
+            "message": (
+                f"Would roll back {pipeline} "
+                f"to version {version}."
+            ),
+        }
+
+    return {
         "action": "rollback_deployment",
+        "status": "EXECUTED",
+        "dry_run": False,
         "pipeline": pipeline,
         "version": version,
-        "dry_run": dry_run,
+        "message": (
+            f"Pipeline {pipeline} rolled back "
+            f"to version {version}."
+        ),
     }
 
-    if dry_run:
-        action["status"] = "PROPOSED"
-        action["message"] = (
-            f"Would roll back pipeline {pipeline} "
-            f"to version {version}."
+def validate_remediation(
+    recovery_run_id,
+    expected_records=None,
+    duplicate_tolerance=0,
+):
+    metrics = get_job_metrics(
+        recovery_run_id
+    )
+
+    if not metrics:
+        return {
+            "validation_passed": False,
+            "reason": "Recovery run metrics not found",
+        }
+
+    checks = {}
+
+    # ---------------------------------------------
+    # Pipeline status
+    # ---------------------------------------------
+
+    checks["pipeline_success"] = (
+        metrics.get("status") == "SUCCESS"
+    )
+
+    # ---------------------------------------------
+    # Duplicate validation
+    # ---------------------------------------------
+
+    duplicate_records = metrics.get(
+        "duplicate_records",
+        0
+    )
+
+    checks["duplicates_within_tolerance"] = (
+        duplicate_records <= duplicate_tolerance
+    )
+
+    # ---------------------------------------------
+    # Expected record count
+    # ---------------------------------------------
+
+    if expected_records is not None:
+
+        actual_records = metrics.get(
+            "records_written",
+            0
         )
 
-        return action
+        tolerance = expected_records * 0.02
 
-    action["status"] = "EXECUTED"
+        checks["record_count_valid"] = (
+            abs(
+                actual_records - expected_records
+            )
+            <= tolerance
+        )
 
-    return action
+    # ---------------------------------------------
+    # Freshness check
+    # ---------------------------------------------
 
+    checks["freshness_ok"] = (
+        metrics.get(
+            "freshness_delay_minutes",
+            9999
+        )
+        <= 30
+    )
+
+    validation_passed = all(
+        checks.values()
+    )
+
+    return {
+        "recovery_run_id":
+            recovery_run_id,
+
+        "validation_passed":
+            validation_passed,
+
+        "checks":
+            checks,
+
+        "metrics":
+            metrics,
+    }
 
 if __name__ == "__main__":
     print("Logs:")

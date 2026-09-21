@@ -8,7 +8,9 @@ from diagnostic_tools import (
     rerun_pipeline as run_pipeline,
     quarantine_partition as quarantine_data,
     rollback_deployment as rollback_code,
+    validate_remediation as run_validation,
 )
+
 
 from incident_rag import search_knowledge as search_incident_knowledge
 
@@ -78,21 +80,23 @@ def detect_pipeline_anomaly(
         pipeline,
         run_id,
     )
-
 @mcp.tool()
 def rerun_pipeline(
     pipeline: str,
     run_id: str,
+    dry_run: bool = True,
 ) -> dict:
     """
-    Propose rerunning a failed pipeline.
-    This tool currently operates in dry-run mode only.
+    Rerun a failed pipeline.
+
+    dry_run=True only proposes the action.
+    dry_run=False executes the action.
     """
 
     return run_pipeline(
         pipeline=pipeline,
         run_id=run_id,
-        dry_run=True,
+        dry_run=dry_run,
     )
 
 
@@ -100,16 +104,19 @@ def rerun_pipeline(
 def quarantine_partition(
     pipeline: str,
     partition: str = "affected_batch",
+    dry_run: bool = True,
 ) -> dict:
     """
-    Propose quarantining an affected data partition.
-    This tool currently operates in dry-run mode only.
+    Quarantine an affected data partition or batch.
+
+    dry_run=True only proposes the action.
+    dry_run=False executes the action.
     """
 
     return quarantine_data(
         pipeline=pipeline,
         partition=partition,
-        dry_run=True,
+        dry_run=dry_run,
     )
 
 
@@ -117,16 +124,35 @@ def quarantine_partition(
 def rollback_deployment(
     pipeline: str,
     version: str,
+    dry_run: bool = True,
 ) -> dict:
     """
-    Propose rolling back a pipeline deployment.
-    This tool currently operates in dry-run mode only.
+    Roll back a deployment.
+
+    dry_run=True only proposes the action.
+    dry_run=False executes the action.
     """
 
     return rollback_code(
         pipeline=pipeline,
         version=version,
-        dry_run=True,
+        dry_run=dry_run,
+    )
+
+@mcp.tool()
+def validate_remediation(
+    recovery_run_id: str,
+    expected_records: int = 10000000,
+    duplicate_tolerance: int = 0,
+) -> dict:
+    """
+    Validate pipeline and data health after remediation.
+    """
+
+    return run_validation(
+        recovery_run_id=recovery_run_id,
+        expected_records=expected_records,
+        duplicate_tolerance=duplicate_tolerance,
     )
 
 if __name__ == "__main__":
