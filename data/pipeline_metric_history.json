@@ -1,0 +1,52 @@
+{
+  "customer_gold": [
+    {
+      "runtime_minutes": 24,
+      "records_written": 10100000,
+      "duplicate_rate": 0.001,
+      "freshness_delay_minutes": 3
+    },
+    {
+      "runtime_minutes": 26,
+      "records_written": 9900000,
+      "duplicate_rate": 0.002,
+      "freshness_delay_minutes": 4
+    },
+    {
+      "runtime_minutes": 25,
+      "records_written": 10200000,
+      "duplicate_rate": 0.001,
+      "freshness_delay_minutes": 2
+    },
+    {
+      "runtime_minutes": 27,
+      "records_written": 10050000,
+      "duplicate_rate": 0.003,
+      "freshness_delay_minutes": 5
+    },
+    {
+      "runtime_minutes": 23,
+      "records_written": 9800000,
+      "duplicate_rate": 0.001,
+      "freshness_delay_minutes": 3
+    },
+    {
+      "runtime_minutes": 25,
+      "records_written": 10000000,
+      "duplicate_rate": 0.002,
+      "freshness_delay_minutes": 4
+    },
+    {
+      "runtime_minutes": 28,
+      "records_written": 10300000,
+      "duplicate_rate": 0.002,
+      "freshness_delay_minutes": 5
+    },
+    {
+      "runtime_minutes": 24,
+      "records_written": 9950000,
+      "duplicate_rate": 0.001,
+      "freshness_delay_minutes": 2
+    }
+  ]
+}

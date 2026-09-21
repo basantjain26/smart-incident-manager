@@ -12,5 +12,12 @@
   "current_target_records": 18000000,
   "expected_target_records": 10000000,
   "duplicate_records": 8000000
+  },
+  "RUN-1003": {
+  "pipeline": "customer_gold",
+  "runtime_minutes": 93,
+  "records_written": 6100000,
+  "duplicate_rate": 0.08,
+  "freshness_delay_minutes": 47
   }
-}
+} 

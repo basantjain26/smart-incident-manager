@@ -34,5 +34,14 @@
   "run_id": "RUN-1002",
   "status": "DATA_QUALITY_FAILURE",
   "timestamp": "2026-09-19T00:20:00"
+  },
+  {
+  "incident_id": "INC-1003",
+  "source": "cloud_monitoring",
+  "pipeline": "customer_gold",
+  "task": "gold_aggregation",
+  "run_id": "RUN-1003",
+  "status": "PERFORMANCE_ANOMALY",
+  "timestamp": "2026-09-21T04:30:00"
   }
 ]
