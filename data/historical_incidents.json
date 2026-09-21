@@ -22,5 +22,65 @@
       "severity": "high"
     },
     "content": "## Incident\nDuplicate transactions appeared in the Gold table after an Airflow retry.\n\n## Investigation\nThe original Spark execution had already written part of the batch before failing. Airflow retried the entire batch.\n\n## Root Cause\nThe target write process was not idempotent, so replaying the batch inserted records that had already been committed.\n\n## Resolution\nThe affected partition was quarantined, records were deduplicated using transaction_id, and the corrected batch was written using MERGE logic.\n\n## Lessons Learned\nStable batch identifiers and idempotent MERGE operations were added to the pipeline."
+  },
+  {
+    "incident_id": "INC-1002",
+    "title": "Resolved incident INC-1002 - customer_gold",
+    "incident_type": "duplicate_data",
+    "platform": "databricks",
+    "environment": "production",
+    "severity": "high",
+    "pipeline": "customer_gold",
+    "task": "gold_aggregation",
+    "source": "cloudwatch",
+    "run_id": "RUN-1002",
+    "original_status": "PERFORMANCE_ANOMALY",
+    "root_cause": "## 1. Root Cause\n\nThe most likely root cause is a **non-idempotent retry after a partial Spark write**:\n\n1. The job partially wrote the batch.\n2. Airflow automatically retried the failed job.\n3. The retry appears to have written the batch again instead of safely replacing or deduplicating the partial output.\n\nThis is supported by the observed **8 million duplicate records** and the target count exceeding the expected count by exactly 8 million.\n\nThere is also an operational metadata inconsistency: the requested pipeline is `customer_gold` / `gold_aggregation`, but the retrieved logs identify `transaction_processing` / `gold_transaction_load`. This should be resolved before making any irreversible change.\n\n## 2. Current Evidence\n\n- Run: `RUN-1002`\n- Reported status: `PERFORMANCE_ANOMALY`\n- Runtime: **48 minutes**\n- Records read: **10,000,000**\n- Expected target records: **10,000,000**\n- Current target records: **18,000,000**\n- Records written before failure: **8,000,000**\n- Duplicate records: **8,000,000**\n- Retry count: **1**\n- Logs report:\n  - Spark failed after partially writing the transaction batch.\n  - Airflow automatically retried the job.\n- Schema diff result: **no schema difference returned**\n- Anomaly detection: **tool execution failed**, so there is no independent anomaly-model confirmation.\n\nThe exact match between the partial write count and the duplicate count strongly supports retry-induced duplication.\n\n## 3. Relevant Historical Knowledge\n\nHistorical knowledge searches returned no matching incidents or approved runbooks.\n\nTherefore, the current production telemetry\u2014not historical precedent\u2014is the basis for the diagnosis and recommendation.\n\n## 4. Impact\n\nThe target currently contains **18 million records instead of the expected 10 million**, including approximately **8 million duplicate records**.\n\nPotential impact includes:\n\n- Incorrect customer-level aggregates\n- Overcounted measures in downstream gold-layer queries\n- Incorrect reports or exports using this target\n- Additional processing latency caused by the failed run and retry\n\nThe actual set of downstream consumers affected was not provided and should be checked before recovery.\n\n## 5. Recommended Remediation\n\nThe safest immediate action is to **quarantine the affected batch/partition before attempting another retry**. This prevents the potentially duplicated output from being treated as valid input to downstream processing.\n\nA dry-run proposal was issued:\n\n- Action: quarantine `affected_batch`\n- Pipeline: `customer_gold`\n- Status: **PROPOSED only**\n- No production change was executed.\n\nAfter confirming that `RUN-1002` and the returned log metadata refer to the same production data, the recovery should:\n\n1. Quarantine or remove the partial/duplicated output according to the approved data-recovery procedure.\n2. Reprocess the batch using an idempotent write or overwrite strategy.\n3. Prevent an automatic retry from appending to an already partially written target.\n4. Review the pipeline-to-run/log correlation because of the `customer_gold` versus `transaction_processing` mismatch.\n\nA blind rerun is not recommended while the duplicated target remains in place.\n\n## 6. Validation Steps\n\nAfter an approved recovery run:\n\n1. Obtain the recovery run ID.\n2. Validate that the target contains approximately **10,000,000 records**.\n3. Require **zero duplicates**, or the explicitly approved duplicate tolerance.\n4. Confirm that the affected partition is no longer quarantined unintentionally.\n5. Compare aggregate totals against the source batch.\n6. Verify no additional append occurred from an automatic retry.\n7. Recheck runtime and task status.\n8. Confirm downstream data-quality checks and customer aggregates are healthy.\n\nThe `validate_remediation` check should be run with:\n\n- `expected_records`: `10,000,000`\n- `duplicate_tolerance`: `0`\n\nNo production remediation was executed; the quarantine action remains a dry-run proposal pending human approval and confirmation of the pipeline/run metadata.",
+    "remediation": {
+      "action": "quarantine_partition",
+      "arguments": {
+        "pipeline": "customer_gold",
+        "partition": "affected_batch",
+        "dry_run": true
+      },
+      "dry_run_result": {
+        "action": "quarantine_partition",
+        "status": "PROPOSED",
+        "dry_run": true,
+        "pipeline": "customer_gold",
+        "partition": "affected_batch",
+        "message": "Would quarantine affected_batch for pipeline customer_gold."
+      }
+    },
+    "execution_result": {
+      "action": "quarantine_partition",
+      "status": "EXECUTED",
+      "dry_run": false,
+      "pipeline": "customer_gold",
+      "partition": "affected_batch",
+      "message": "Partition affected_batch quarantined for pipeline customer_gold."
+    },
+    "validation": {
+      "recovery_run_id": "RUN-1002-RECOVERY",
+      "validation_passed": true,
+      "checks": {
+        "pipeline_success": true,
+        "duplicates_within_tolerance": true,
+        "record_count_valid": true,
+        "freshness_ok": true
+      },
+      "metrics": {
+        "pipeline": "transaction_processing",
+        "runtime_minutes": 31,
+        "records_written": 10000000,
+        "duplicate_records": 0,
+        "duplicate_rate": 0.0,
+        "freshness_delay_minutes": 6,
+        "status": "SUCCESS"
+      }
+    },
+    "final_status": "RESOLVED",
+    "resolved_at": "2026-09-21T15:18:03.470202+00:00",
+    "lessons_learned": "The remediation was human approved, executed successfully, and verified through deterministic post-remediation validation before the incident was added to trusted historical knowledge."
   }
 ]

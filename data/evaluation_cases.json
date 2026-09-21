@@ -1,0 +1,71 @@
+[
+  {
+    "case_id": "EVAL-001",
+    "incident_id": "INC-1001",
+    "description": "Breaking upstream schema change",
+    "expected_tools": [
+      "get_job_logs",
+      "get_schema_diff",
+      "search_knowledge"
+    ],
+    "allowed_extra_tools": [
+      "get_lineage"
+    ],
+    "expected_rag_documents": [
+      "INC-0721",
+      "RB-001"
+    ],
+    "root_cause_keywords": [
+      "schema",
+      "amount",
+      "transaction_amount"
+    ],
+    "expected_remediation": null,
+    "remediation_required": false
+  },
+  {
+    "case_id": "EVAL-002",
+    "incident_id": "INC-1002",
+    "description": "Duplicate data caused by partial write and retry",
+    "expected_tools": [
+      "get_job_logs",
+      "get_job_metrics",
+      "search_knowledge"
+    ],
+    "allowed_extra_tools": [
+      "get_lineage",
+      "quarantine_partition"
+    ],
+    "expected_rag_documents": [
+      "INC-0814",
+      "RB-002"
+    ],
+    "root_cause_keywords": [
+      "partial",
+      "retry",
+      "duplicate"
+    ],
+    "expected_remediation": "quarantine_partition",
+    "remediation_required": true
+  },
+  {
+    "case_id": "EVAL-003",
+    "incident_id": "INC-1003",
+    "description": "Performance and data-quality anomaly",
+    "expected_tools": [
+      "get_job_metrics",
+      "detect_pipeline_anomaly"
+    ],
+    "allowed_extra_tools": [
+      "search_knowledge"
+    ],
+    "expected_rag_documents": [],
+    "root_cause_keywords": [
+      "runtime",
+      "duplicate",
+      "freshness"
+    ],
+    "expected_remediation": null,
+    "remediation_required": false
+  }
+]
